@@ -169,6 +169,9 @@ async function calculateResponseRates(companyId: string) {
         return {
           surveyId: survey._id,
           title: survey.title,
+          status: survey.status,
+          eligible: eligibleEmployees,
+          responses,
           responseRate
         };
       } catch (error) {
@@ -179,15 +182,6 @@ async function calculateResponseRates(companyId: string) {
           responseRate: 0
         };
       }
-      
-      return {
-        surveyId: survey._id,
-        title: survey.title,
-        status: survey.status,
-        eligible: eligibleEmployees,
-        responses,
-        responseRate
-      };
     })
   );
   
