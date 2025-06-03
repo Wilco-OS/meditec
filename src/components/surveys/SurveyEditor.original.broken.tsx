@@ -1,0 +1,1205 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { v4 as uuidv4 } from 'uuid';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { 
+  Select, 
+  SelectContent, 
+  SelectItem, 
+  SelectTrigger, 
+  SelectValue 
+} from '@/components/ui/select';
+import { DatePicker } from '@/components/ui/date-picker';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { toast } from '@/components/ui/use-toast';
+import { SurveyStatus } from '@/types/survey';
+import { QuestionType } from '@/types/question';
+import SurveyPreview from './SurveyPreview';
+import QuestionCatalogSelector from './QuestionCatalogSelector';
+import { ArrowUpDown } from 'lucide-react';
+import { Check } from 'lucide-react';
+import { Copy } from 'lucide-react';
+import { Grip } from 'lucide-react';
+import { Plus } from 'lucide-react';
+import { Save } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
+import { AlignLeft } from 'lucide-react';
+import { ListChecks } from 'lucide-react';
+import { ThumbsUp } from 'lucide-react';
+import { Star } from 'lucide-react';
+import { Play } from 'lucide-react';
+import { Calendar } from 'lucide-react';
+import { SurveyBlockSelector } from './SurveyBlockSelector';
+import { DepartmentSelector } from './DepartmentSelector';
+
+// Definieren der Schnittstellen für bessere Typisierung
+// Erweiterte Option-Schnittstelle, die mit dem vorhandenen Code kompatibel ist
+interface SurveyOption {
+  id: string;
+  text: string;
+  value: string | number; // Wird im vorhandenen Code benötigt
+}
+
+// Frage-Schnittstelle, die mit dem vorhandenen Code kompatibel ist
+interface SurveyQuestion {
+  id: string;
+  text: string;
+  description?: string;
+  type: string; // Verwende string statt der enum, um Kompatibilität mit vorhandenem Code zu gewährleisten
+  isRequired: boolean;
+  options?: SurveyOption[];
+  blockId: string;
+  [key: string]: any; // Für andere mögliche Eigenschaften
+}
+
+// Block-Schnittstelle, die mit dem vorhandenen Code kompatibel ist
+interface SurveyBlock {
+  id: string;
+  title: string;
+  description: string; // Nicht optional, da im vorhandenen Code so verwendet
+  order: number; // Nicht optional, da im vorhandenen Code so verwendet
+  questions?: SurveyQuestion[];
+  // Neue Eigenschaften für Abteilungsspezifische Fragen
+  restrictToDepartments: boolean;
+  departments?: string[];
+}
+
+interface Survey {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  isAnonymous: boolean;
+  startDate: Date | null;
+  endDate: Date | null;
+  blocks: SurveyBlock[];
+  questions: SurveyQuestion[];
+  assignedCompanies: string[];
+}
+
+interface SurveyEditorProps {
+  initialData?: Partial<Survey>;
+  companies?: { id: string; name: string }[];
+  id: string;
+  name: string;
+}
+
+export default function SurveyEditor({ initialData, companies = [] }: SurveyEditorProps) {
+  const router = useRouter();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState('edit');
+  const [showScheduleDialog, setShowScheduleDialog] = useState(false);
+  
+  // Standardumfragedaten initialisieren
+  const [survey, setSurvey] = useState<Survey>(() => {
+    // Debug-Informationen
+    console.log('SurveyEditor initialData:', initialData);
+    
+    // Fragen aus den Blöcken extrahieren, falls noch nicht auf der obersten Ebene vorhanden
+    let extractedQuestions: SurveyQuestion[] = initialData?.questions || [];
+    
+    // Wenn keine Fragen auf oberster Ebene, aber Blöcke mit Fragen vorhanden sind
+    if ((!extractedQuestions || extractedQuestions.length === 0) && 
+        initialData?.blocks && Array.isArray(initialData.blocks)) {
+      console.log('Keine Fragen auf oberster Ebene gefunden, extrahiere aus Blöcken...');
+      
+      // Fragen aus den Blöcken sammeln
+      extractedQuestions = [];
+      initialData.blocks.forEach((block: { id: string; title: string; questions?: any[] }) => {
+        if (block.questions && Array.isArray(block.questions)) {
+          console.log(`Block '${block.title}' enthält ${block.questions.length} Fragen`);
+          
+          // Jede Frage mit der Block-ID versehen
+          block.questions.forEach((question: any) => {
+            extractedQuestions.push({
+              ...question,
+              blockId: block.id // Wichtig: blockId für die Zuordnung
+            });
+          });
+        }
+      });
+      
+      console.log(`Insgesamt ${extractedQuestions.length} Fragen aus Blöcken extrahiert`);
+    }
+    
+    // Erstelle einen Standardblock, falls keine Blöcke vorhanden sind
+    const defaultBlocks: SurveyBlock[] = [
+      {
+        id: uuidv4(),
+        title: 'Einführung',
+        description: 'Willkommen zu unserer Umfrage',
+        order: 0,
+        questions: []
+      }
+    ];
+    
+    return {
+      id: initialData?.id || uuidv4(),
+      title: initialData?.title || '',
+      description: initialData?.description || '',
+      status: initialData?.status || SurveyStatus.DRAFT,
+      isAnonymous: initialData?.isAnonymous !== undefined ? initialData.isAnonymous : true,
+      startDate: initialData?.startDate ? new Date(initialData.startDate) : null,
+      endDate: initialData?.endDate ? new Date(initialData.endDate) : null,
+      blocks: initialData?.blocks || defaultBlocks,
+      questions: extractedQuestions,
+      assignedCompanies: initialData?.assignedCompanies || []
+    };
+  });
+
+  // Aktuell bearbeiteter Block
+  const [selectedBlockIndex, setSelectedBlockIndex] = useState(0);
+  const [draggedBlockIndex, setDraggedBlockIndex] = useState<number | null>(null);
+  
+  // Aktuell bearbeitete Frage
+  const [editingQuestion, setEditingQuestion] = useState<any | null>(null);
+  const [showQuestionDialog, setShowQuestionDialog] = useState(false);
+  const [isEditingQuestion, setIsEditingQuestion] = useState(false);
+  
+  // Fragenkatalog
+  const [showCatalogSelector, setShowCatalogSelector] = useState(false);
+
+  // Umgang mit verschiedenen Formaten der assignedCompanies
+  const [assignedCompanyId, setAssignedCompanyId] = useState<string>(() => {
+    // Debugging
+    console.log('AssignedCompanies aus initialData:', initialData?.assignedCompanies);
+    
+    // Wenn keine Unternehmenszuweisung vorhanden ist
+    if (!initialData?.assignedCompanies || !Array.isArray(initialData.assignedCompanies) || initialData.assignedCompanies.length === 0) {
+      console.log('Keine Unternehmenszuweisung gefunden');
+      return 'none';
+    }
+    
+    // Wir verwenden das erste zugewiesene Unternehmen
+    const firstCompany = initialData.assignedCompanies[0];
+    console.log('Erstes zugewiesenes Unternehmen:', firstCompany);
+    
+    // Wenn das erste Element ein String ist, verwenden wir es direkt
+    if (typeof firstCompany === 'string') {
+      return firstCompany;
+    }
+    
+    // Wenn es ein Objekt mit einer id-Eigenschaft ist
+    if (firstCompany && typeof firstCompany === 'object' && 'id' in firstCompany) {
+      return (firstCompany as { id: string }).id;
+    }
+    
+    // Fallback
+    return "none";
+  });
+
+  // Bearbeitete Umfrage speichern
+  const saveSurvey = async () => {
+    setIsSubmitting(true);
+    
+    try {
+      // Leere Validierung
+      if (!survey.title.trim()) {
+        toast({
+          title: 'Fehler',
+          description: 'Bitte geben Sie einen Titel für die Umfrage ein.',
+          variant: 'destructive'
+        });
+        setIsSubmitting(false);
+        return;
+      }
+      
+      // Debug-Information für initialData
+      console.log('initialData vorhanden:', !!initialData);
+      console.log('initialData.id vorhanden:', !!initialData?.id);
+
+      // UMFASSENDE DEBUG-AUSGABE
+      console.log('SURVEY SPEICHERN - VOLLSTÄNDIGE DATEN:');
+      console.log('Titel der Umfrage:', survey.title);
+      console.log('Beschreibung:', survey.description);
+      console.log('Status:', survey.status);
+      console.log('Start/End Datum:', survey.startDate, survey.endDate);
+      console.log('Anzahl Fragen:', survey.questions.length);
+      console.log('Anzahl Blöcke:', survey.blocks.length);
+      console.log('Unternehmenszuordnung:', assignedCompanyId);
+      
+      // Blöcke und Fragen
+      console.log('BLOCK DETAILS:');
+      survey.blocks.forEach((block: { id: string; title: string; description: string; questions?: any[] }, index: number) => {
+        console.log(`Block ${index + 1}: ${block.title || 'Unbenannt'} ---`);
+        console.log('Block ID:', block.id);
+        console.log('Beschreibung:', block.description);
+        
+        if (!block.questions) {
+          console.log('⚠️ KRITISCHER FEHLER: questions Array ist undefined!');
+          // Initialisieren, damit wir weitermachen können
+          block.questions = [];
+        }
+        
+        console.log(`Anzahl Fragen: ${block.questions.length}`);
+        block.questions.forEach((question, qIndex) => {
+          console.log(`  Frage ${qIndex + 1}: ${question.text || 'Keine Textangabe'}`);
+          console.log(`    ID: ${question.id}, Typ: ${question.type}`);
+        });
+      });
+      
+      // Unternehmenszuweisung
+      console.log('\nUNTERNEHMENSZUWEISUNG:');
+      console.log('Zugewiesenes Unternehmen ID:', assignedCompanyId);
+      console.log('Unternehmen ausgewählt:', assignedCompanyId ? 'Ja' : 'Nein');
+      
+      // AUTOMATISCHE KORREKTUR DER DATEN
+      // 1. Sicherstellen, dass jeder Block ein Fragen-Array hat und alle erforderlichen Eigenschaften hat
+      survey.blocks = survey.blocks.map((block: { id: string; title?: string; description?: string; order?: number; questions?: any[] }) => ({
+        ...block,
+        title: block.title || 'Unbenannter Block',
+        description: block.description || '',
+        order: typeof block.order === 'number' ? block.order : 0,
+        questions: Array.isArray(block.questions) ? block.questions : []  
+      }));
+      
+      // 2. Sicherstellen, dass assignedCompanyId ein gültiger String ist
+      if (!assignedCompanyId) {
+        console.log('⚠️ Kein Unternehmen ausgewählt');
+        // Wir lassen die API-Validierung greifen
+      }
+      
+      // ALLE VALIDIERUNGEN DEAKTIVIERT
+      // Für Debugging-Zwecke ignorieren wir fehlende Fragen und Unternehmen
+      // Die API wird diese Validierungen durchführen und entsprechende Fehlermeldungen liefern
+
+      // Unternehmenszuweisung in die zu sendenden Daten integrieren
+      const surveyToSave = {
+        ...survey,
+        assignedCompanies: assignedCompanyId && assignedCompanyId !== "none" ? [assignedCompanyId] : []
+      };
+      
+      console.log('Zu speichernde Umfrage mit Unternehmenszuweisung:', surveyToSave.assignedCompanies);
+      
+      // API-Anfrage zum Speichern der Umfrage
+      // Wichtig: Wir verwenden initialData?.id, um zu entscheiden, ob es ein Update ist oder nicht
+      // Neue Umfragen haben zwar eine UUID, aber sind nicht in der Datenbank
+      const isNewSurvey = !initialData?.id;
+      const apiUrl = isNewSurvey ? '/api/surveys' : `/api/surveys/${survey.id}`;
+      const apiMethod = isNewSurvey ? 'POST' : 'PUT';
+      
+      console.log('Speichermethode:', apiMethod, 'für URL:', apiUrl);
+      console.log('Ist eine neue Umfrage:', isNewSurvey ? 'Ja' : 'Nein');
+      
+      const response = await fetch(apiUrl, {
+        method: apiMethod,
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(surveyToSave)
+      });
+
+      // Detaillierte Fehlerinformationen bei fehlgeschlagener Anfrage
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Server-Fehler beim Speichern der Umfrage:', {
+          status: response.status,
+          statusText: response.statusText,
+          responseBody: errorText
+        });
+        throw new Error(`Fehler beim Speichern der Umfrage (${response.status}): ${errorText || response.statusText}`);
+      }
+
+      const result = await response.json();
+      
+      toast({
+        title: 'Erfolg',
+        description: initialData 
+          ? 'Umfrage wurde erfolgreich aktualisiert.' 
+          : 'Umfrage wurde erfolgreich erstellt.',
+      });
+
+      // Zur Umfrageübersicht zurückkehren
+      router.push('/admin/surveys');
+      router.refresh();
+    } catch (error) {
+      console.error('Fehler beim Speichern:', error);
+      toast({
+        title: 'Fehler',
+        description: 'Es ist ein Fehler aufgetreten. Bitte versuchen Sie es erneut.',
+        variant: 'destructive'
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Allgemeine Umfragedaten aktualisieren
+  const updateSurveyGeneral = (field: string, value: any) => {
+    setSurvey(prev => ({ ...prev, [field]: value }));
+  };
+
+  // Block hinzufügen
+  const addBlock = () => {
+    const newBlock: SurveyBlock = {
+      id: uuidv4(),
+      title: `Abschnitt ${survey.blocks.length + 1}`,
+      description: '',
+      order: survey.blocks.length,
+      restrictToDepartments: false,
+      departments: []
+    };
+    
+    setSurvey((prev: Survey) => ({
+      ...prev,
+      blocks: [...prev.blocks, newBlock]
+    }));
+    
+    setSelectedBlockIndex(survey.blocks.length);
+  };
+
+  // Block löschen
+  const deleteBlock = (blockIndex: number) => {
+    if (survey.blocks.length <= 1) {
+      toast({
+        title: 'Fehler',
+        description: 'Die Umfrage muss mindestens einen Block enthalten.',
+        variant: 'destructive'
+      });
+      return;
+    }
+
+    const blockId = survey.blocks[blockIndex].id;
+    
+    // Update Block-Liste
+    const updatedBlocks = survey.blocks.filter((_, index) => index !== blockIndex);
+    
+    // Ordnungszahlen aktualisieren
+    const reorderedBlocks = updatedBlocks.map((block, index) => ({
+      ...block,
+      order: index
+    }));
+    
+    // Fragen filtern, die mit diesem Block verknüpft sind
+    const updatedQuestions = survey.questions.filter(q => q.blockId !== blockId);
+    
+    setSurvey(prev => ({
+      ...prev,
+      blocks: reorderedBlocks,
+      questions: updatedQuestions
+    }));
+    
+    // Wenn der ausgewählte Block gelöscht wurde, zum ersten Block wechseln
+    if (blockIndex === selectedBlockIndex) {
+      setSelectedBlockIndex(0);
+    } else if (blockIndex < selectedBlockIndex) {
+      setSelectedBlockIndex(selectedBlockIndex - 1);
+    }
+  };
+
+  // Block-Titel oder -Beschreibung aktualisieren
+  const updateBlock = (blockIndex: number, field: string, value: string) => {
+    const updatedBlocks = [...survey.blocks];
+    updatedBlocks[blockIndex] = {
+      ...updatedBlocks[blockIndex],
+      [field]: value
+    };
+    
+    setSurvey((prev: Survey) => ({
+      ...prev,
+      blocks: updatedBlocks
+    }));
+  };
+
+  // Reihenfolge der Blöcke ändern
+  const moveBlock = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= survey.blocks.length) return;
+    
+    const updatedBlocks = [...survey.blocks];
+    const [movedBlock] = updatedBlocks.splice(fromIndex, 1);
+    updatedBlocks.splice(toIndex, 0, movedBlock);
+    
+    // Ordnungszahlen aktualisieren
+    const reorderedBlocks = updatedBlocks.map((block, index) => ({
+      ...block,
+      order: index
+    }));
+    
+    setSurvey(prev => ({
+      ...prev,
+      blocks: reorderedBlocks
+    }));
+    
+    setSelectedBlockIndex(toIndex);
+  };
+
+  // Block nach oben verschieben
+  const moveBlockUp = (blockIndex: number) => {
+    moveBlock(blockIndex, blockIndex - 1);
+  };
+
+  // Block nach unten verschieben
+  const moveBlockDown = (blockIndex: number) => {
+    moveBlock(blockIndex, blockIndex + 1);
+  };
+
+  // Drag-and-Drop-Handling für Blöcke
+  const handleDragStart = (blockIndex: number) => {
+    setDraggedBlockIndex(blockIndex);
+  };
+
+  const handleDragOver = (e: React.DragEvent, blockIndex: number) => {
+    e.preventDefault();
+    if (draggedBlockIndex === null || draggedBlockIndex === blockIndex) return;
+  };
+
+  const handleDrop = (blockIndex: number) => {
+    if (draggedBlockIndex === null || draggedBlockIndex === blockIndex) return;
+    moveBlock(draggedBlockIndex, blockIndex);
+    setDraggedBlockIndex(null);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedBlockIndex(null);
+  };
+  
+  // Neue Frage zum aktuellen Block hinzufügen
+  const addQuestion = () => {
+    const currentBlock = survey.blocks[selectedBlockIndex];
+    
+    setEditingQuestion({
+      id: uuidv4(),
+      text: '',
+      description: '',
+      type: QuestionType.TEXT,
+      isRequired: false,
+      options: [],
+      blockId: currentBlock.id
+    });
+    
+    setIsEditingQuestion(false);
+    setShowQuestionDialog(true);
+  };
+
+  // Vorhandene Frage bearbeiten
+  const editQuestion = (question: any) => {
+    setEditingQuestion({
+      ...question,
+      options: question.options || []
+    });
+  };
+  
+  // Frage löschen
+  const deleteQuestion = (questionId: string) => {
+    // Aktualisiere die Survey-Daten, entferne die Frage mit der gegebenen ID
+    setSurvey(prev => ({
+      ...prev,
+      questions: prev.questions.filter(q => q.id !== questionId)
+    }));
+  };
+  
+  // Frage speichern (neu oder bearbeitet)
+  const saveQuestion = () => {
+    if (!editingQuestion.text.trim()) {
+      toast({
+        title: 'Fehler',
+        description: 'Bitte geben Sie einen Text für die Frage ein.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    // Bei Multiple Choice prüfen, ob Optionen vorhanden sind
+    if (editingQuestion.type === QuestionType.MULTIPLE_CHOICE && 
+        (!editingQuestion.options || editingQuestion.options.length < 2)) {
+      toast({
+        title: 'Fehler',
+        description: 'Multiple-Choice-Fragen benötigen mindestens zwei Optionen.',
+        variant: 'destructive'
+      });
+      return;
+    }
+    
+    if (isEditingQuestion) {
+      // Vorhandene Frage aktualisieren
+      setSurvey(prev => ({
+        ...prev,
+        questions: prev.questions.map(q => {
+          // Sicherstellen, dass wir die Frage mit der passenden ID aktualisieren
+          return q.id === editingQuestion.id ? editingQuestion : q;
+        })
+      }));
+    } else {
+      // Neue Frage hinzufügen
+      setSurvey(prev => ({
+        ...prev,
+        questions: [...prev.questions, editingQuestion]
+      }));
+    }
+    
+    setShowQuestionDialog(false);
+    setEditingQuestion(null);
+  };
+  
+  // Option zu einer Multiple-Choice-Frage hinzufügen
+  const addOption = () => {
+    if (!editingQuestion) return;
+    
+    setEditingQuestion((prev: SurveyQuestion) => ({
+      ...prev,
+      options: [
+        ...(prev.options || []),
+        {
+          id: uuidv4(),
+          text: '',
+          value: prev.options ? prev.options.length + 1 : 1
+        }
+      ]
+    }));
+  };
+  
+  // Option aus einer Multiple-Choice-Frage entfernen
+  const removeOption = (optionId: string) => {
+    if (!editingQuestion) return;
+    
+    setEditingQuestion((prev: SurveyQuestion) => ({
+      ...prev,
+      options: (prev.options || []).filter((opt: SurveyOption) => opt.id !== optionId)
+    }));
+  };
+  
+  // Option einer Multiple-Choice-Frage aktualisieren
+  const updateOption = (optionId: string, field: string, value: any) => {
+    if (!editingQuestion) return;
+    
+    setEditingQuestion((prev: SurveyQuestion) => ({
+      ...prev,
+      options: (prev.options || []).map((opt: SurveyOption) => {
+        // Sicherstellen, dass jede Option eine eindeutige ID hat
+        const updatedOption = opt.id === optionId ? { ...opt, [field]: value } : opt;
+        return updatedOption.id ? updatedOption : { ...updatedOption, id: uuidv4() };
+      })
+    }));
+  };
+  
+  // Umfrage planen (Zeitraum festlegen)
+  const scheduleSurvey = () => {
+    setSurvey(prev => ({
+      ...prev,
+      status: SurveyStatus.SCHEDULED,
+      startDate: prev.startDate,
+      endDate: prev.endDate
+    }));
+    
+    setShowScheduleDialog(false);
+  };
+  
+  // Umfrage aktivieren
+  const activateSurvey = () => {
+    setSurvey(prev => ({
+      ...prev,
+      status: SurveyStatus.ACTIVE
+    }));
+  };
+  
+  // Render-Funktion für Frage-Icon basierend auf Typ
+  const renderQuestionTypeIcon = (type: QuestionType) => {
+    switch (type) {
+      case QuestionType.TEXT:
+        return <AlignLeft className="h-4 w-4" />;
+      case QuestionType.YES_NO:
+      case QuestionType.AGREE_DISAGREE:
+        return <Check className="h-4 w-4" />;
+      case QuestionType.MULTIPLE_CHOICE:
+        return <ListChecks className="h-4 w-4" />;
+      case QuestionType.RATING:
+        return <Star className="h-4 w-4" />;
+      default:
+        return <AlignLeft className="h-4 w-4" />;
+    }
+  };
+  
+  // Ausgabe des Fragentyps in lesbarer Form
+  const getQuestionTypeLabel = (type: QuestionType) => {
+    switch (type) {
+      case QuestionType.TEXT:
+        return 'Freitext';
+      case QuestionType.YES_NO:
+        return 'Ja/Nein';
+      case QuestionType.AGREE_DISAGREE:
+        return 'Zustimmung';
+      case QuestionType.MULTIPLE_CHOICE:
+        return 'Multiple Choice';
+      case QuestionType.RATING:
+        return 'Bewertung (1-5)';
+      default:
+        return type;
+    }
+  };
+  
+  // Fragen für den aktuellen Block filtern
+  const currentBlockQuestions = survey.questions.filter(
+    q => q.blockId === survey.blocks[selectedBlockIndex]?.id
+  );
+
+  return (
+    <div className="space-y-6">
+      {/* Haupttabs: Bearbeiten & Vorschau */}
+      <Tabs 
+        defaultValue="edit" 
+        value={activeTab} 
+        onValueChange={setActiveTab}
+        className="space-y-4"
+      >
+        <TabsList>
+          <TabsTrigger value="edit">Umfrage bearbeiten</TabsTrigger>
+          <TabsTrigger value="preview">Vorschau</TabsTrigger>
+        </TabsList>
+        
+        {/* Bearbeitungsmodus */}
+        <TabsContent value="edit" className="space-y-6">
+          {/* Allgemeine Einstellungen */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Allgemeine Einstellungen</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="title">Titel der Umfrage</Label>
+                <Input
+                  id="title"
+                  value={survey.title}
+                  onChange={(e) => updateSurveyGeneral('title', e.target.value)}
+                  placeholder="Geben Sie einen Titel ein"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="description">Beschreibung (optional)</Label>
+                <Textarea
+                  id="description"
+                  value={survey.description}
+                  onChange={(e) => updateSurveyGeneral('description', e.target.value)}
+                  placeholder="Geben Sie eine Beschreibung ein"
+                />
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="isAnonymous"
+                  checked={survey.isAnonymous}
+                  onCheckedChange={(checked) => updateSurveyGeneral('isAnonymous', checked)}
+                />
+                <Label htmlFor="isAnonymous">Anonyme Umfrage</Label>
+              </div>
+              
+              {companies.length > 0 && (
+                <div className="space-y-2">
+                  <Label htmlFor="company-select">Zugewiesenes Unternehmen</Label>
+                  <div className="flex">
+                    <select
+                      id="company-select"
+                      value={assignedCompanyId}
+                      onChange={(e) => setAssignedCompanyId(e.target.value)}
+                      className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {/* Schlüssel für statische Option */}
+                      <option key="none" value="none">Kein Unternehmen</option>
+                      {/* Schlüssel für dynamisch generierte Optionen */}
+                      {companies.map((company, idx) => (
+                        <option key={`company-${company.id || idx}`} value={company.id}>
+                          {company.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  {/* Badge wird entfernt, da das Dropdown bereits den ausgewählten Namen anzeigt */}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+          
+          {/* Blöcke und Fragen */}
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            {/* Block-Liste (linke Spalte) */}
+            <Card className="md:col-span-1">
+              <CardHeader>
+                <CardTitle>Abschnitte</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  {survey.blocks.map((block, index) => (
+                    <div
+                      key={block.id}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            moveBlockUp(index);
+                          }}
+                          disabled={index === 0}
+                        >
+                          <ArrowUpDown className="h-3 w-3" />
+                        </Button>
+                        <Button 
+                          variant="ghost" 
+                          size="icon" 
+                          className="h-6 w-6 text-destructive"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteBlock(index);
+                          }}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                
+                <Button 
+                  variant="outline" 
+                  className="w-full" 
+                  onClick={addBlock}
+                >
+                  <Plus className="h-4 w-4 mr-2" />
+                  Neuer Abschnitt
+                </Button>
+              </CardContent>
+            </Card>
+            
+            {/* Block-Inhalt (rechte Spalte) */}
+            <Card className="md:col-span-3">
+              <CardHeader>
+                <CardTitle>
+                  {survey.blocks[selectedBlockIndex]?.title || 'Abschnitt bearbeiten'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-8">
+                {/* Block-Einstellungen */}
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="blockTitle">Abschnittstitel</Label>
+                    <Input
+                      id="blockTitle"
+                      value={survey.blocks[selectedBlockIndex]?.title || ''}
+                      onChange={(e) => updateBlock(selectedBlockIndex, 'title', e.target.value)}
+                      placeholder="Geben Sie einen Abschnittstitel ein"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="blockDescription">Beschreibung (optional)</Label>
+                    <Textarea
+                      id="blockDescription"
+                      value={survey.blocks[selectedBlockIndex]?.description || ''}
+                      onChange={(e) => updateBlock(selectedBlockIndex, 'description', e.target.value)}
+                      placeholder="Geben Sie eine Beschreibung ein"
+                    />
+                  </div>
+                  
+                  {/* Abteilungseinschränkungen */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="blockRestrictToDepartments">Abteilungsspezifischer Abschnitt</Label>
+                      <Switch
+                        id="blockRestrictToDepartments"
+                        checked={survey.blocks[selectedBlockIndex]?.restrictToDepartments || false}
+                        onCheckedChange={(checked) => updateBlock(selectedBlockIndex, 'restrictToDepartments', checked)}
+                      />
+                    </div>
+                    
+                    {survey.blocks[selectedBlockIndex]?.restrictToDepartments && (
+                      <div className="pt-2">
+                        <Label htmlFor="blockDepartments">Abteilungen auswählen</Label>
+                        <div className="mt-2 space-y-2">
+                          {companies.map((company) => (
+                            <div key={company.id} className="space-y-1">
+                              <h4 className="text-sm font-medium">{company.name}</h4>
+                              {company.departments && company.departments.length > 0 ? (
+                                <div className="space-y-1 pl-4">
+                                  {company.departments.map((dept, deptIndex) => (
+                                    <div key={`${company.id}-${deptIndex}`} className="flex items-center">
+                                      <input
+                                        type="checkbox"
+                                        id={`dept-${company.id}-${deptIndex}`}
+                                        className="mr-2"
+                                        checked={
+                                          survey.blocks[selectedBlockIndex]?.departments?.includes(
+                                            `${company.id}:${dept.name}`
+                                          ) || false
+                                        }
+                                        onChange={(e) => {
+                                          const deptId = `${company.id}:${dept.name}`;
+                                          const currentDepts = survey.blocks[selectedBlockIndex]?.departments || [];
+                                          let newDepts;
+                                          
+                                          if (e.target.checked) {
+                                            newDepts = [...currentDepts, deptId];
+                                          } else {
+                                            newDepts = currentDepts.filter(d => d !== deptId);
+                                          }
+                                          
+                                          updateBlock(selectedBlockIndex, 'departments', newDepts);
+                                        }}
+                                      />
+                                      <label
+                                        htmlFor={`dept-${company.id}-${deptIndex}`}
+                                        className="text-sm"
+                                      >
+                                        {dept.name}
+                                      </label>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <p className="text-sm text-muted-foreground pl-4">Keine Abteilungen definiert</p>
+                              )}
+                            </div>
+                          ))}
+                          
+                          {companies.length === 0 && (
+                            <p className="text-sm text-muted-foreground">Keine Unternehmen mit Abteilungen verfügbar</p>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-2">
+                          Hinweis: Dieser Abschnitt wird nur Mitarbeitern angezeigt, die den ausgewählten Abteilungen angehören.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                <Separator />
+                
+                {/* Fragen im Block */}
+                <div className="space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="text-lg font-medium">Fragen in diesem Abschnitt</h3>
+                    <div className="flex gap-2">
+                      <Button variant="outline" onClick={() => setShowCatalogSelector(true)}>
+                        <ListChecks className="h-4 w-4 mr-2" />
+                        Aus Katalog hinzufügen
+                      </Button>
+                      <Button onClick={addQuestion}>
+                        <Plus className="h-4 w-4 mr-2" />
+                        Frage hinzufügen
+                      </Button>
+                    </div>
+                  </div>
+                  
+                  {currentBlockQuestions.length > 0 ? (
+                    <div className="space-y-3">
+                      {currentBlockQuestions.map((question) => (
+                        <Card key={question.id} className="relative">
+                          <CardContent className="p-4">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 mr-4">
+                                <div className="flex items-center">
+                                  {renderQuestionTypeIcon(question.type as QuestionType)}
+                                  <span className="ml-2 text-sm text-muted-foreground">
+                                    {getQuestionTypeLabel(question.type as QuestionType)}
+                                  </span>
+                                  {question.isRequired && (
+                                    <span className="ml-2 text-xs text-red-500 font-medium">*Pflichtfeld</span>
+                                  )}
+                                </div>
+                                <h4 className="font-medium mt-1">{question.text}</h4>
+                                {question.description && (
+                                  <p className="text-sm text-muted-foreground mt-1">{question.description}</p>
+                                )}
+                                
+                                {/* Optionen anzeigen für Multiple Choice */}
+                                {question.type === QuestionType.MULTIPLE_CHOICE && question.options && (
+                                  <div className="mt-2 pl-4 space-y-1">
+                                    {question.options.map((option: any, optIdx: number) => (
+                                      <div key={option.id || `option-${optIdx}-${question.id}`} className="text-sm flex items-center">
+                                        <span className="h-2 w-2 bg-primary rounded-full mr-2" />
+                                        <span>{option.text}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex space-x-2">
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => editQuestion(question)}
+                                >
+                                  <Copy className="h-4 w-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  className="text-destructive"
+                                  onClick={() => deleteQuestion(question.id)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 border rounded-lg bg-gray-50">
+                      <p className="text-muted-foreground">
+                        Keine Fragen in diesem Abschnitt. Fügen Sie Fragen hinzu, um zu beginnen.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+          
+          {/* Aktions-Buttons */}
+          <div className="flex justify-end gap-3">
+            <Dialog open={showScheduleDialog} onOpenChange={setShowScheduleDialog}>
+              <DialogTrigger asChild>
+                <Button variant="outline">
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Umfrage planen
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Umfrage planen</DialogTitle>
+                  <DialogDescription>
+                    Legen Sie den Zeitraum fest, in dem die Umfrage aktiv sein soll.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4 py-4">
+                  <div className="space-y-2">
+                    <Label>Startdatum</Label>
+                    <DatePicker
+                      date={survey.startDate ? new Date(survey.startDate) : undefined}
+                      setDate={(date) => updateSurveyGeneral('startDate', date)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Enddatum</Label>
+                    <DatePicker
+                      date={survey.endDate ? new Date(survey.endDate) : undefined}
+                      setDate={(date) => updateSurveyGeneral('endDate', date)}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button onClick={scheduleSurvey}>Bestätigen</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            
+            <Button variant="outline" onClick={activateSurvey}>
+              <Play className="mr-2 h-4 w-4" />
+              Umfrage aktivieren
+            </Button>
+            
+            <Button onClick={saveSurvey} disabled={isSubmitting}>
+              <Save className="mr-2 h-4 w-4" />
+              {isSubmitting ? 'Wird gespeichert...' : 'Speichern'}
+            </Button>
+          </div>
+          
+          {/* Fragenkatalog Selector */}
+          <QuestionCatalogSelector
+            isOpen={showCatalogSelector}
+            onClose={() => setShowCatalogSelector(false)}
+            onConfirm={(selectedQuestions) => {
+              // Füge die ausgewählten Fragen zum aktuellen Block hinzu
+              const currentBlockId = survey.blocks[selectedBlockIndex].id;
+              
+              // Katalogfragen zum aktuellen Block umwandeln
+              const newQuestions = selectedQuestions.map(q => {
+                // Stelle sicher, dass jede Frage eine eindeutige ID hat
+                const newQuestionId = uuidv4();
+                return {
+                  id: newQuestionId,
+                  text: q.text,
+                  description: q.description || '',
+                  type: q.type,
+                  isRequired: q.required || false,
+                  options: (q.options || []).map((opt, optIndex) => ({
+                    id: opt.id || uuidv4(),
+                    text: opt.text || '',
+                    value: opt.value || `option-${optIndex}`
+                  })),
+                  blockId: currentBlockId,
+                  // Original-ID als Referenz behalten für zukünftige Updates
+                  catalogId: q._id
+                };
+              });
+              
+              // Fragen hinzufügen
+              setSurvey(prev => ({
+                ...prev,
+                blocks: prev.blocks.map((block, index) => {
+                  // Stelle sicher, dass jeder Block eine eindeutige ID hat, wenn er transformiert wird
+                  const updatedBlock = index === selectedBlockIndex 
+                    ? {
+                        ...block,
+                        questions: [...(block.questions || []), ...newQuestions]
+                      }
+                    : block;
+                  return updatedBlock;
+                }),
+                questions: [...prev.questions, ...newQuestions]
+              }));
+              
+              // Dialog schließen
+              setShowCatalogSelector(false);
+              
+              // Erfolgsbenachrichtigung
+              toast({
+                title: 'Erfolg',
+                description: `${newQuestions.length} Frage${newQuestions.length !== 1 ? 'n' : ''} aus dem Katalog hinzugefügt.`
+              });
+            }}
+          />
+        </TabsContent>
+        
+        {/* Vorschaumodus */}
+        <TabsContent value="preview">
+          <div className="space-y-4">
+            <Button 
+              variant="outline" 
+              className="mb-4" 
+              onClick={() => setActiveTab('edit')}
+            >
+              Zurück zur Bearbeitung
+            </Button>
+            
+            <SurveyPreview survey={survey} readOnly={true} />
+          </div>
+        </TabsContent>
+      </Tabs>
+      
+      {/* Dialog für Fragen-Bearbeitung */}
+      <Dialog open={showQuestionDialog} onOpenChange={setShowQuestionDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {isEditingQuestion ? 'Frage bearbeiten' : 'Neue Frage'}
+            </DialogTitle>
+          </DialogHeader>
+          
+          {editingQuestion && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="questionText">Fragetext</Label>
+                <Input
+                  id="questionText"
+                  value={editingQuestion.text}
+                  onChange={(e) => setEditingQuestion({...editingQuestion, text: e.target.value})}
+                  placeholder="Geben Sie den Fragetext ein"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="questionDescription">Beschreibung (optional)</Label>
+                <Textarea
+                  id="questionDescription"
+                  value={editingQuestion.description || ''}
+                  onChange={(e) => setEditingQuestion({...editingQuestion, description: e.target.value})}
+                  placeholder="Geben Sie eine Beschreibung ein"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="questionType">Fragetyp</Label>
+                <Select
+                  value={editingQuestion.type}
+                  onValueChange={(value) => setEditingQuestion({
+                    ...editingQuestion, 
+                    type: value,
+                    // Optionen zurücksetzen, wenn nicht Multiple Choice
+                    options: value === QuestionType.MULTIPLE_CHOICE 
+                      ? editingQuestion.options?.length 
+                        ? editingQuestion.options 
+                        : [
+                            { id: uuidv4(), text: 'Option 1', value: 1 },
+                            { id: uuidv4(), text: 'Option 2', value: 2 }
+                          ]
+                      : []
+                  })}
+                >
+                  <SelectTrigger id="questionType">
+                    <SelectValue placeholder="Fragetyp auswählen" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem key="text" value={QuestionType.TEXT}>Freitext</SelectItem>
+                    <SelectItem key="yes_no" value={QuestionType.YES_NO}>Ja/Nein</SelectItem>
+                    <SelectItem key="agree_disagree" value={QuestionType.AGREE_DISAGREE}>Zustimmung</SelectItem>
+                    <SelectItem key="multiple_choice" value={QuestionType.MULTIPLE_CHOICE}>Multiple Choice</SelectItem>
+                    <SelectItem key="rating" value={QuestionType.RATING}>Bewertung (1-5)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="isRequired"
+                  checked={editingQuestion.isRequired}
+                  onCheckedChange={(checked) => setEditingQuestion({...editingQuestion, isRequired: checked})}
+                />
+                <Label htmlFor="isRequired">Pflichtfeld</Label>
+              </div>
+              
+              {/* Optionen für Multiple-Choice-Fragen */}
+              {editingQuestion.type === QuestionType.MULTIPLE_CHOICE && (
+                <div className="space-y-3 pt-3 border-t">
+                  <Label>Antwortoptionen</Label>
+                  
+                  {editingQuestion.options && editingQuestion.options.map((option: any, optIndex: number) => (
+                    <div key={option.id || `option-${optIndex}`} className="flex items-center space-x-3">
+                      <Input
+                        value={option.text}
+                        onChange={(e) => updateOption(option.id, 'text', e.target.value)}
+                        placeholder="Optionstext"
+                        className="flex-1"
+                      />
+                      <Button 
+                        variant="ghost" 
+                        size="icon" 
+                        className="h-8 w-8 text-destructive"
+                        onClick={() => removeOption(option.id)}
+                        disabled={editingQuestion.options.length <= 2}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                  
+                  <Button 
+                    variant="outline" 
+                    className="w-full" 
+                    onClick={addOption}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Option hinzufügen
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button onClick={saveQuestion}>
+              Speichern
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}

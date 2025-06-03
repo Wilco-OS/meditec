@@ -1,0 +1,339 @@
+'use client';
+
+import React, { useState } from 'react';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { 
+  DropdownMenu, 
+  DropdownMenuContent, 
+  DropdownMenuItem, 
+  DropdownMenuLabel, 
+  DropdownMenuSeparator, 
+  DropdownMenuTrigger 
+} from '@/components/ui/dropdown-menu';
+import { SurveyStatus } from '@/types/survey';
+import { Badge } from '@/components/ui/badge';
+import { format } from 'date-fns';
+import { de } from 'date-fns/locale';
+import { Edit, Eye, MoreVertical, Trash2, Copy, Send, Clock, Archive, FileText } from 'lucide-react';
+import Link from 'next/link';
+
+interface SurveyListProps {
+  surveys: {
+    id: string;
+    title: string;
+    description?: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+    startDate?: string;
+    endDate?: string;
+    responseCount?: number;
+    assignedCompaniesCount?: number;
+  }[];
+  isAdmin?: boolean;
+  onDelete?: (id: string) => void;
+  onDuplicate?: (id: string) => void;
+  onStatusChange?: (id: string, status: string) => void;
+}
+
+export default function SurveyList({ 
+  surveys, 
+  isAdmin = false, 
+  onDelete, 
+  onDuplicate, 
+  onStatusChange 
+}: SurveyListProps) {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+
+  // Filtern der Umfragen basierend auf Suchbegriff und Status
+  const filteredSurveys = surveys.filter((survey) => {
+    const matchesSearch = survey.title.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                         (survey.description && survey.description.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchesStatus = statusFilter ? survey.status === statusFilter : true;
+    return matchesSearch && matchesStatus;
+  });
+
+  // Status-Badge mit passender Farbe rendern
+  const renderStatusBadge = (status: string) => {
+    let color = "bg-gray-200 text-gray-800";
+    
+    switch(status) {
+      case SurveyStatus.DRAFT:
+        color = "bg-gray-200 text-gray-800";
+        break;
+      case SurveyStatus.PENDING:
+        color = "bg-yellow-100 text-yellow-800";
+        break;
+      case SurveyStatus.SCHEDULED:
+        color = "bg-blue-100 text-blue-800";
+        break;
+      case SurveyStatus.ACTIVE:
+        color = "bg-green-100 text-green-800";
+        break;
+      case SurveyStatus.IN_PROGRESS:
+        color = "bg-purple-100 text-purple-800";
+        break;
+      case SurveyStatus.COMPLETED:
+        color = "bg-blue-100 text-blue-800";
+        break;
+    }
+    
+    return (
+      <Badge className={color}>
+        {status === SurveyStatus.DRAFT && 'Entwurf'}
+        {status === SurveyStatus.PENDING && 'Ausstehend'}
+        {status === SurveyStatus.SCHEDULED && 'Geplant'}
+        {status === SurveyStatus.ACTIVE && 'Aktiv'}
+        {status === SurveyStatus.IN_PROGRESS && 'In Bearbeitung'}
+        {status === SurveyStatus.COMPLETED && 'Abgeschlossen'}
+      </Badge>
+    );
+  };
+
+  // Formatieren eines Datums
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return 'Nicht festgelegt';
+    return format(new Date(dateString), 'dd. MMMM yyyy', { locale: de });
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Filter und Suche */}
+      <div className="flex flex-col md:flex-row gap-4 mb-6">
+        <Input
+          placeholder="Suche nach Umfragetitel oder Beschreibung..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="max-w-sm"
+        />
+        
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" className="ml-auto">
+              Status: {statusFilter ? (
+                <>
+                  {statusFilter === SurveyStatus.DRAFT && 'Entwurf'}
+                  {statusFilter === SurveyStatus.PENDING && 'Ausstehend'}
+                  {statusFilter === SurveyStatus.SCHEDULED && 'Geplant'}
+                  {statusFilter === SurveyStatus.ACTIVE && 'Aktiv'}
+                  {statusFilter === SurveyStatus.IN_PROGRESS && 'In Bearbeitung'}
+                  {statusFilter === SurveyStatus.COMPLETED && 'Abgeschlossen'}
+                </>
+              ) : 'Alle'}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Filter nach Status</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem key="all" onClick={() => setStatusFilter(null)}>
+              Alle
+            </DropdownMenuItem>
+            <DropdownMenuItem key="draft" onClick={() => setStatusFilter(SurveyStatus.DRAFT)>
+              Entwurf
+            </DropdownMenuItem>
+            <DropdownMenuItem key="pending" onClick={() => setStatusFilter(SurveyStatus.PENDING)>
+              Ausstehend
+            </DropdownMenuItem>
+            <DropdownMenuItem key="scheduled" onClick={() => setStatusFilter(SurveyStatus.SCHEDULED)>
+              Geplant
+            </DropdownMenuItem>
+            <DropdownMenuItem key="active" onClick={() => setStatusFilter(SurveyStatus.ACTIVE)>
+              Aktiv
+            </DropdownMenuItem>
+            <DropdownMenuItem key="in_progress" onClick={() => setStatusFilter(SurveyStatus.IN_PROGRESS)>
+              In Bearbeitung
+            </DropdownMenuItem>
+            <DropdownMenuItem key="completed" onClick={() => setStatusFilter(SurveyStatus.COMPLETED)>
+              Abgeschlossen
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
+      {/* Umfrageliste */}
+      {filteredSurveys.length > 0 ? (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+          {filteredSurveys.map((survey) => (
+            <Card key={survey.id} className="flex flex-col">
+              <CardHeader className="flex flex-row items-start justify-between space-y-0">
+                <div>
+                  <CardTitle className="text-xl">{survey.title}</CardTitle>
+                  <CardDescription className="mt-1.5">
+                    Erstellt am {formatDate(survey.createdAt)}
+                  </CardDescription>
+                </div>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" className="h-8 w-8 p-0">
+                      <span className="sr-only">Menü öffnen</span>
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuLabel>Aktionen</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <Link href={survey.id && survey.id !== 'undefined' ? `/surveys/${survey.id}/preview` : '#'}>
+                      <DropdownMenuItem>
+                        <Eye className="mr-2 h-4 w-4" />
+                        Vorschau
+                      </DropdownMenuItem>
+                    </Link>
+                    {isAdmin && (
+                      <>
+                        <Link href={survey.id && survey.id !== 'undefined' ? `/admin/surveys/${survey.id}/edit` : '#'}>
+                          {/* Debug-Information */}
+                          {!survey.id && <span className="hidden">Keine ID vorhanden</span>}
+                          {survey.id === 'undefined' && <span className="hidden">ID ist 'undefined'</span>}
+                          <DropdownMenuItem>
+                            <Edit className="mr-2 h-4 w-4" />
+                            Bearbeiten
+                          </DropdownMenuItem>
+                        </Link>
+                        <DropdownMenuItem onClick={() => {
+                          if (survey.id && survey.id !== 'undefined' && onDuplicate) {
+                            console.log('Dupliziere Umfrage mit ID:', survey.id);
+                            onDuplicate(survey.id);
+                          } else {
+                            console.error('Kann Umfrage nicht duplizieren: Ungültige ID', survey.id);
+                          }
+                        }}>
+                          <Copy className="mr-2 h-4 w-4" />
+                          Duplizieren
+                        </DropdownMenuItem>
+                        {survey.status === SurveyStatus.DRAFT && (
+                          <DropdownMenuItem onClick={() => {
+                            if (survey.id && survey.id !== 'undefined' && onStatusChange) {
+                              console.log('Ändere Status der Umfrage mit ID:', survey.id, 'zu', SurveyStatus.PENDING);
+                              onStatusChange(survey.id, SurveyStatus.PENDING);
+                            } else {
+                              console.error('Kann Status nicht ändern: Ungültige ID', survey.id);
+                            }
+                          }}>
+                            <Send className="mr-2 h-4 w-4" />
+                            Zur Prüfung einreichen
+                          </DropdownMenuItem>
+                        )}
+                        {survey.status === SurveyStatus.PENDING && (
+                          <DropdownMenuItem onClick={() => {
+                            if (survey.id && survey.id !== 'undefined' && onStatusChange) {
+                              console.log('Ändere Status der Umfrage mit ID:', survey.id, 'zu', SurveyStatus.ACTIVE);
+                              onStatusChange(survey.id, SurveyStatus.ACTIVE);
+                            } else {
+                              console.error('Kann Status nicht ändern: Ungültige ID', survey.id);
+                            }
+                          }}>
+                            <Send className="mr-2 h-4 w-4" />
+                            Aktivieren
+                          </DropdownMenuItem>
+                        )}
+                        {survey.status === SurveyStatus.ACTIVE && (
+                          <DropdownMenuItem onClick={() => {
+                            if (survey.id && survey.id !== 'undefined' && onStatusChange) {
+                              console.log('Ändere Status der Umfrage mit ID:', survey.id, 'zu', SurveyStatus.COMPLETED);
+                              onStatusChange(survey.id, SurveyStatus.COMPLETED);
+                            } else {
+                              console.error('Kann Status nicht ändern: Ungültige ID', survey.id);
+                            }
+                          }}>
+                            <Archive className="mr-2 h-4 w-4" />
+                            Abschließen
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          onClick={() => {
+                            if (survey.id && survey.id !== 'undefined' && onDelete) {
+                              console.log('Lösche Umfrage mit ID:', survey.id);
+                              onDelete(survey.id);
+                            } else {
+                              console.error('Kann Umfrage nicht löschen: Ungültige ID', survey.id);
+                            }
+                          }}
+                          className="text-red-600"
+                        >
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Löschen
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </CardHeader>
+              <CardContent className="flex-1">
+                <div className="mb-4">
+                  {renderStatusBadge(survey.status)}
+                </div>
+                {survey.description && (
+                  <p className="text-sm text-gray-600 line-clamp-2 mb-4">
+                    {survey.description}
+                  </p>
+                )}
+                <div className="mt-4 space-y-2 text-sm">
+                  {isAdmin && survey.assignedCompaniesCount !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Unternehmen:</span>
+                      <span>{survey.assignedCompaniesCount}</span>
+                    </div>
+                  )}
+                  {survey.responseCount !== undefined && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Antworten:</span>
+                      <span>{survey.responseCount}</span>
+                    </div>
+                  )}
+                  {survey.startDate && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Start:</span>
+                      <span>{formatDate(survey.startDate)}</span>
+                    </div>
+                  )}
+                  {survey.endDate && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Ende:</span>
+                      <span>{formatDate(survey.endDate)}</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+              <CardFooter className="pt-4">
+                <Button asChild className="w-full">
+                  <Link href={survey.status === SurveyStatus.DRAFT && isAdmin
+                    ? `/admin/surveys/${survey.id}/edit`
+                    : `/surveys/${survey.id}`
+                  }>
+                    {survey.status === SurveyStatus.DRAFT && isAdmin
+                      ? 'Bearbeiten'
+                      : 'Details anzeigen'
+                    }
+                  </Link>
+                </Button>
+              </CardFooter>
+            </Card>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-12 border rounded-lg bg-gray-50">
+          <div className="mx-auto w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center mb-4">
+            <FileText className="h-6 w-6 text-gray-500" />
+          </div>
+          <h3 className="text-lg font-medium">Keine Umfragen gefunden</h3>
+          <p className="text-sm text-gray-500 mt-1">
+            {searchTerm || statusFilter 
+              ? 'Keine Umfragen entsprechen den gewählten Filterkriterien.' 
+              : 'Es wurden noch keine Umfragen erstellt.'}
+          </p>
+          {isAdmin && !searchTerm && !statusFilter && (
+            <div className="mt-6">
+              <Button asChild>
+                <Link href="/admin/surveys/new">Neue Umfrage erstellen</Link>
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
