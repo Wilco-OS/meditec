@@ -34,7 +34,9 @@ export async function GET(req: NextRequest) {
     }
 
     // Abteilungen formatieren
-    const departments = (company.departments || []).map(dept => ({
+    // TypeScript-Korrektur: Explizites Casting für das lean()-Ergebnis
+    const companyData = company as { departments?: Array<{ _id: mongoose.Types.ObjectId, name: string, description?: string }> };
+    const departments = (companyData.departments || []).map(dept => ({
       id: dept._id.toString(),
       name: dept.name,
       description: dept.description
@@ -84,9 +86,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unternehmen nicht gefunden' }, { status: 404 });
     }
 
+    // TypeScript-Interface für die Abteilungsstruktur
+    interface Department {
+      _id: mongoose.Types.ObjectId;
+      name: string;
+      description?: string;
+    }
+
     // Prüfen, ob eine Abteilung mit diesem Namen bereits existiert
     const departmentExists = company.departments.some(
-      dept => dept.name.toLowerCase() === name.toLowerCase()
+      (dept: Department) => dept.name.toLowerCase() === name.toLowerCase()
     );
 
     if (departmentExists) {
