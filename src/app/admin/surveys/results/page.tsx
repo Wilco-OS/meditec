@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import SurveyResults from '@/components/surveys/SurveyResults';
@@ -10,10 +10,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, AlertCircle, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 
-export default function SurveyResultsPage() {
+// Die Content-Komponente verwendet useSearchParams und muss in Suspense eingewickelt werden
+function SurveyResultsContent() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // Hier wird useSearchParams() verwendet
   const surveyId = searchParams.get('id') || '';
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -107,5 +108,14 @@ export default function SurveyResultsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// Hauptkomponente, die SurveyResultsContent mit Suspense umhüllt
+export default function SurveyResultsPage() {
+  return (
+    <Suspense fallback={<div className="container py-10">Laden...</div>}>
+      <SurveyResultsContent />
+    </Suspense>
   );
 }

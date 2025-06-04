@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -10,9 +10,10 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/components/ui/use-toast';
 import { Loader2 } from 'lucide-react';
 
-export default function ActivateAccountPage() {
+// Diese Komponente nutzt useSearchParams() und muss deshalb in Suspense eingewickelt werden
+function AccountActivationContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useSearchParams(); // Hier wird useSearchParams() verwendet
   const { toast } = useToast();
   
   const [isLoading, setIsLoading] = useState(false);
@@ -27,7 +28,7 @@ export default function ActivateAccountPage() {
   
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [companyName, setCompanyName] = useState<string | null>(null);
-  
+
   // Verifiziere den Code, wenn er über die URL Parameter übergeben wurde
   useEffect(() => {
     const code = searchParams?.get('code');
@@ -331,5 +332,14 @@ export default function ActivateAccountPage() {
         </form>
       </Card>
     </div>
+  );
+}
+
+// Hauptkomponente, die AccountActivationContent mit Suspense umhüllt
+export default function ActivateAccountPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center">Laden...</div>}>
+      <AccountActivationContent />
+    </Suspense>
   );
 }
