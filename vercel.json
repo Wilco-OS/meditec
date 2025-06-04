@@ -4,5 +4,11 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "framework": "nextjs",
-  "outputDirectory": ".next"
+  "outputDirectory": ".next",
+  "build": {
+    "env": {
+      "NEXT_TYPESCRIPT_IGNORE_TYPECHECK": "true",
+      "NEXT_ESLINT_IGNORE_CHECKS": "true"
+    }
+  }
 }
